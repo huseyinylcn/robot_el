@@ -5,11 +5,11 @@ import {
   RobotHandPreview,
   type RobotPose,
 } from "@/components/RobotHandPreview";
+import { useSpeechCommands } from "@/hooks/useSpeechCommands";
+import type { CmdDef } from "@/lib/voiceMatch";
 
 const BAUD = 115200;
 const RESET_MS = 4000;
-
-type CmdDef = { key: string; label: string; pose: RobotPose };
 
 const COMMANDS: CmdDef[] = [
   { key: "1", label: "Merhaba", pose: "merhaba" },
@@ -34,6 +34,7 @@ export default function Home() {
     null,
   );
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendCommandRef = useRef<(cmd: CmdDef) => void>(() => {});
 
   useEffect(() => {
     setSupported(
@@ -153,12 +154,34 @@ export default function Home() {
     [locked, scheduleReset],
   );
 
+  sendCommandRef.current = sendCommand;
+
+  const {
+    speechSupported,
+    listening,
+    lastTranscript,
+    startListening,
+    stopListening,
+  } = useSpeechCommands({
+    commands: COMMANDS,
+    allowExecute: connected && !locked,
+    onMatch: (cmd, transcript) => {
+      setStatus(`Ses: "${transcript.trim()}" → ${cmd.label} (${cmd.key})`);
+      sendCommandRef.current(cmd);
+    },
+    debounceMs: 850,
+  });
+
   useEffect(() => {
     return () => {
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       void disconnect();
     };
   }, [disconnect]);
+
+  useEffect(() => {
+    if (!connected) stopListening();
+  }, [connected, stopListening]);
 
   return (
     <div className="min-h-full bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
@@ -192,6 +215,16 @@ export default function Home() {
                 localhost
               </code>{" "}
               veya HTTPS olmalıdır.
+            </div>
+          )}
+
+          {!speechSupported && (
+            <div
+              className="rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-100/95"
+              role="status"
+            >
+              Ses tanıma bu tarayıcıda yok veya kapalı. Chrome / Edge ile
+              deneyin.
             </div>
           )}
 
@@ -245,6 +278,51 @@ export default function Home() {
             >
               {status}
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-violet-500/20 bg-violet-950/20 p-5 shadow-xl backdrop-blur-sm">
+            <h2 className="mb-2 text-sm font-semibold text-violet-200">
+              Sesli komut
+            </h2>
+            <p className="mb-4 text-xs leading-relaxed text-slate-400">
+              Mikrofonu açın; Türkçe sözcükleri algılayınca seriye ilgili satır
+              gönderilir (bağlı ve kilit yokken). Sayılar çoğu zaman{" "}
+              <span className="font-mono text-violet-200">1 2 3 4</span> olarak
+              gelir (bir–dört ile aynı). Örnek:{" "}
+              <span className="text-slate-300">
+                merhaba, bozkurt, yumruk, bir, iki, üç, dört
+              </span>
+              .
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                disabled={!speechSupported || !connected}
+                onClick={() =>
+                  listening ? stopListening() : startListening()
+                }
+                className={`inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  listening
+                    ? "border border-rose-400/50 bg-rose-500/20 text-rose-100 hover:bg-rose-500/30"
+                    : "border border-violet-400/40 bg-violet-600/30 text-violet-50 hover:bg-violet-600/45"
+                }`}
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${listening ? "animate-pulse bg-rose-400" : "bg-violet-300"}`}
+                  aria-hidden
+                />
+                {listening ? "Dinlemeyi durdur" : "Mikrofonu aç"}
+              </button>
+            </div>
+            {lastTranscript ? (
+              <p className="mt-4 rounded-xl border border-white/5 bg-black/25 px-3 py-2 font-mono text-xs text-slate-300">
+                Son algı: {lastTranscript}
+              </p>
+            ) : (
+              <p className="mt-4 text-xs text-slate-600">
+                Henüz konuşma algılanmadı.
+              </p>
+            )}
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-xl backdrop-blur-sm">
